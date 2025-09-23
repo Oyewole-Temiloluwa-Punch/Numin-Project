@@ -338,7 +338,7 @@ pattern_date = st.date_input(
 ).strftime("%Y-%m-%d")
 
 # Cache file path depends on selected pattern_date
-cache_file = Path(__file__).resolve().parent / "app" / "cache" / f"{pattern_date}_patterns_cache.json"
+cache_file = Path(__file__).resolve().parent / f"{pattern_date}_patterns_cache.json"
 
 # Generate cache if not exists
 if not cache_file.exists():
@@ -363,3 +363,4 @@ if st.button("📊 Analyze Patterns"):
                 st.write("Occurrences Dates:", val["occurrences"])
 
                 st.dataframe(df_outcomes.T)  # 🔄 Transposed table
+
