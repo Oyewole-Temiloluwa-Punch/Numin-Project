@@ -213,7 +213,7 @@ def analyze_current_day_pattern_outcomes(df, occurrence_dates, pattern_date: str
 
 
 # ==== Paths ====
-DB_PATH = Path(__file__).resolve().parent / "app" / "db" / "SPY Chart 2025-08-22-09-36.csv"
+DB_PATH = Path(__file__).resolve().parent / "SPY Chart 2025-08-22-09-36.csv"
 
 st.set_page_config(page_title="SPY Daily Candlestick Chart with Pattern Mapper", layout="wide")
 
@@ -361,4 +361,5 @@ if st.button("📊 Analyze Patterns"):
             with st.expander(f"{key} → {val['target_pattern']}"):
                 st.write(f"Occurrences Count: **{val['occurrences_count']}**")
                 st.write("Occurrences Dates:", val["occurrences"])
+
                 st.dataframe(df_outcomes.T)  # 🔄 Transposed table
