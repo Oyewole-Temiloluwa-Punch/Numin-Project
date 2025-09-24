@@ -22,14 +22,14 @@ It integrates with **AWS S3** for storing and retrieving pattern cache files.
 
 Install dependencies with pip:
 
-```bash
+````bash
 pip install -r requirements.txt
-''''
+````
 
 ---
 
-
 ## ▶️ Run the App
 Run the Streamlit app locally:
-'''bash
+````bash
 streamlit run SPY_Chart_App.py
+````
