@@ -186,7 +186,7 @@ def analyze_current_day_pattern_outcomes(df, occurrence_dates, pattern_date: str
 
 
 # ==== Paths / Load Data ====
-DB_PATH = Path(__file__).resolve().parent / "app" / "db" / "SPY Chart 2025-08-22-09-36.csv"
+DB_PATH = Path(__file__).resolve().parent / "SPY Chart 2025-08-22-09-36.csv"
 
 st.set_page_config(page_title="SPY Pattern Mapper — Per-Pattern Projections", layout="wide")
 
@@ -398,3 +398,4 @@ if st.button("📊 Analyze Patterns"):
             )
             # Unique key per expander chart prevents duplicate-element error
             st.plotly_chart(fig_proj, use_container_width=True, key=f"proj_chart_{key}")
+
