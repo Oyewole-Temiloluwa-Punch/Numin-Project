@@ -1,20 +1,35 @@
-# 📈 SPY Daily Candlestick Chart + Pattern Mapper (Streamlit)
+# 📈 SPY Daily Candlestick Chart with Pattern Mapper
 
-An interactive Streamlit app that:
-
-- Plots a **daily candlestick chart** of SPY with optional **moving averages** and **buy/sell crossover** markers.
-- Computes a **Pattern Mapper** for a selected date:
-  - Generates symbolic OHLC patterns (configurable `gap` and `steps`)
-  - Finds historical **occurrences** of that exact pattern
-  - Computes **forward-day outcome statistics** for up to 30 days
-- **Caches** pattern-computation results as JSON to **AWS S3** and reuses them on subsequent runs.
+This project is a **Streamlit-based web application** that visualizes SPY daily candlestick data and applies a **pattern-matching algorithm** to detect and analyze historical price movement patterns.  
+It integrates with **AWS S3** for storing and retrieving pattern cache files.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Features
 
-### 1) Clone & enter the project
+- Interactive **candlestick chart** of SPY with Plotly.  
+- Option to display **Moving Average (MA) crossover signals** (Buy/Sell).  
+- **Pattern Mapper**:
+  - Detects repeating OHLC patterns using configurable steps & gaps.
+  - Stores pattern results as JSON **cache files in AWS S3**.
+  - Reuses existing cache files to save time.
+  - Analyzes historical outcomes of detected patterns.
+- Streamlit interface with expandable pattern analysis tables.
+
+---
+
+## 🛠 Requirements
+
+Install dependencies with pip:
 
 ```bash
-git clone <your-repo-url>
-cd <your-repo-folder>
+pip install -r requirements.txt
+''''
+
+---
+
+
+## ▶️ Run the App
+Run the Streamlit app locally:
+'''bash
+streamlit run SPY_Chart_App.py
