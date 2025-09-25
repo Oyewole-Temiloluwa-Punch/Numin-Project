@@ -325,7 +325,7 @@ def build_projection_chart(
 
         if dom > 0:
             y_lvl = pattern_close + pos_max
-            color = "yellow"
+            color = "blue"
         elif dom < 0:
             y_lvl = pattern_close + neg_max
             color = "red"
@@ -508,4 +508,5 @@ if st.button("📊 Analyze Patterns"):
                 st.warning("⚠️ No matching prior dates found for this cycle pattern.")
         else:
             st.error("❌ Failed to retrieve cycle pattern data.")
+
 
