@@ -476,7 +476,6 @@ if st.button("📊 Analyze Patterns"):
             
             # Show pattern code
             st.write(f"**Pattern Code:** {cycle_data.get('target_pattern', 'N/A')}")
-            st.write(f"**Pattern Name:** {cycle_data.get('target_pattern_name', 'N/A')}")
             
             matching_dates = cycle_data.get("matching_prior_dates", [])
             
@@ -509,3 +508,4 @@ if st.button("📊 Analyze Patterns"):
                 st.warning("⚠️ No matching prior dates found for this cycle pattern.")
         else:
             st.error("❌ Failed to retrieve cycle pattern data.")
+
