@@ -206,6 +206,8 @@ def load_data(path):
 
 df = load_data(DB_PATH)
 
+df["Index"] = df.index
+
 st.title("📈 SPY — Pattern Analysis Dashboard")
 
 
@@ -219,12 +221,23 @@ window_size = st.number_input("Days to show:", min_value=5, max_value=200, value
 fig_top = go.Figure(
     data=[
         go.Candlestick(
-            x=df["Date"],
+            x=df["Index"],
             open=df["Open"],
             high=df["High"],
             low=df["Low"],
             close=df["Close"],
             name="SPY",
+            hoverinfo="text",
+            hovertext=[
+                f"Date: {date}<br>Open: {op}<br>High: {hi}<br>Low: {lo}<br>Close: {cl}" 
+                for date, op, hi, lo, cl in zip(
+                    df["Date"].dt.strftime("%Y-%m-%d"),
+                    df["Open"],
+                    df["High"],
+                    df["Low"],
+                    df["Close"]
+                )
+            ],
         )
     ]
 )
@@ -236,15 +249,15 @@ end_idx = max_index
 
 fig_top.update_layout(
     template="plotly_dark",
-    xaxis_title="Date",
+    xaxis_title="Trading Days",
     yaxis_title="Price (USD)",
     height=600,
     xaxis_rangeslider_visible=False,
     showlegend=False,
 )
 
-# Set initial x-range by date (you can still pan/zoom across full history)
-fig_top.update_xaxes(range=[df["Date"].iloc[start_idx], df["Date"].iloc[end_idx]])
+# Set initial x-range by index (continuous, no gaps)
+fig_top.update_xaxes(range=[start_idx, end_idx])
 
 # Auto-scale Y to the visible window only
 window_slice = df.iloc[start_idx:end_idx + 1]
@@ -253,6 +266,19 @@ w_high = float(window_slice["High"].max())
 span = max(1e-6, w_high - w_low)
 pad = 0.05 * span
 fig_top.update_yaxes(range=[w_low - pad, w_high + pad])
+
+# Map index ticks back to dates for readability
+tick_step = max(1, (end_idx - start_idx) // 10)
+tick_vals = list(range(start_idx, end_idx + 1, tick_step))
+tick_text = [df["Date"].iloc[i].strftime("%Y-%m-%d") for i in tick_vals]
+fig_top.update_layout(
+    xaxis=dict(
+        tickmode="array",
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        tickangle=45,
+    )
+)
 
 st.plotly_chart(fig_top, use_container_width=True, key="top_candles_chart")
 
@@ -263,15 +289,17 @@ def build_projection_chart(
     outcomes_df: pd.DataFrame,
     pattern_date: str,
     look_ahead: int = 30,
-    real_candles: int = 30
-) -> go.Figure:
+    real_candles: int = 30,
+    highlights: dict | None = None
+    ) -> go.Figure:
     """
-    Single chart per pattern:
-      - Full history candlesticks (pan back is possible).
+    Single chart per pattern using index-based plotting to eliminate gaps:
+      - Uses index for x-axis to create continuous chart without gaps
+      - Maps dates back to actual trading dates for display
       - Projections anchor at the SELECTED date, not the latest bar.
       - Initial x-view focuses on last `real_candles` BEFORE the selected date + `look_ahead` projected trading days.
       - For k=1..look_ahead, draw dashed horizontal segment at:
-          pattern_close + positive_max[k] if dom=+1 (yellow)
+          pattern_close + positive_max[k] if dom=+1 (blue)
           pattern_close + negative_max[k] if dom=-1 (red)
           pattern_close if dom=0 (gray)
       - Auto-scale Y to that window only.
@@ -289,19 +317,31 @@ def build_projection_chart(
 
     fig = go.Figure()
 
-    # Add all candlesticks (full history) to allow panning anywhere
+    # Create index-based x-axis for continuous plotting
+    df_full['Index'] = df_full.index
+    
+    # Add all candlesticks using index for x-axis (no gaps)
     fig.add_trace(go.Candlestick(
-        x=df_full["Date"],
+        x=df_full["Index"],
         open=df_full["Open"],
         high=df_full["High"],
         low=df_full["Low"],
         close=df_full["Close"],
-        name="SPY"
+        name="SPY",
+        hoverinfo="text",
+        hovertext=[f"Date: {date}<br>Open: {op}<br>High: {hi}<br>Low: {lo}<br>Close: {cl}"
+                   for date, op, hi, lo, cl in zip(
+                       df_full["Date"].dt.strftime("%Y-%m-%d"),
+                       df_full["Open"],
+                       df_full["High"],
+                       df_full["Low"],
+                       df_full["Close"]
+                   )]
     ))
 
     # Optional: thin marker for selected date (unobtrusive)
     fig.add_vline(
-        x=pattern_date_dt,
+        x=pattern_idx,
         line_width=1,
         line_dash="dot",
         line_color="white"
@@ -335,32 +375,60 @@ def build_projection_chart(
 
         proj_levels.append(y_lvl)
 
-        # P+K placed on actual trading timestamps if available, else calendar fallback
-        if pattern_idx + k < len(df_full):
-            proj_dt = pd.to_datetime(df_full["Date"].iloc[pattern_idx + k])
-        else:
-            proj_dt = pattern_date_dt + pd.Timedelta(days=k)
+        # P+K placed on continuous index positions (no jump at end of history)
+        proj_idx = pattern_idx + k
 
-        # Draw a short horizontal dashed segment centered at proj_dt (use real timestamps, not strings)
-        dtw = pd.Timedelta(hours=6)  # dash width ~ half-day
+        # Draw a short horizontal dashed segment centered at proj_idx
+        dtw = 0.3  # dash width in index units
         fig.add_trace(go.Scatter(
-            x=[proj_dt - dtw, proj_dt + dtw],
+            x=[proj_idx - dtw, proj_idx + dtw],
             y=[y_lvl, y_lvl],
             mode="lines",
             line=dict(dash="dash", width=3, color=color),
             name=f"P+{k}",
-            showlegend=False
+            showlegend=False,
+            hovertemplate=f"<b>Projection Day {k}</b><br>" +
+                         f"Price Level: %{{y:.2f}}<br>" +
+                         f"<extra></extra>"
         ))
+
+    # Add highlight points at D5/D10/.../D30 if provided
+    if highlights:
+        for k, entry in highlights.items():
+            dom = entry.get("dom", 0)
+            val = float(entry.get("value", 0.0) or 0.0)
+            proj_idx = pattern_idx + int(k)
+            # compute y: base on pattern_close plus range effect
+            if dom == 0:
+                y_pt = pattern_close
+                marker_color = "#FFFFFF"  # white
+            elif dom > 0:
+                y_pt = pattern_close + val
+                marker_color = "#00E5FF"  # bright cyan
+            else:
+                y_pt = pattern_close + val
+                marker_color = "#FF00FF"  # magenta
+
+            fig.add_trace(go.Scatter(
+                x=[proj_idx],
+                y=[y_pt],
+                mode="markers",
+                marker=dict(size=10, color=marker_color, symbol="star", line=dict(color="#000", width=1)),
+                name=f"D{k} highlight",
+                showlegend=False,
+                hovertemplate=f"<b>Highlight D{k}</b><br>Dom: {dom}<br>Value: %{{y:.2f}}<extra></extra>"
+            ))
 
     # Initial x-window: last `real_candles` BEFORE selected date + projected trading dates after
     start_view = max(0, pattern_idx - real_candles + 1)
-    start_date = df_full["Date"].iloc[start_view]
+    # Calculate end index to include projections seamlessly
     if pattern_idx + proj_days < len(df_full):
-        end_date = df_full["Date"].iloc[pattern_idx + proj_days]
+        end_idx = pattern_idx + proj_days
     else:
-        end_date = pattern_date_dt + pd.Timedelta(days=proj_days + 1)
+        # Continue projections from the last real data point
+        end_idx = len(df_full) - 1 + proj_days
 
-    fig.update_xaxes(range=[start_date, end_date])
+    fig.update_xaxes(range=[start_view, end_idx])
 
     # Auto-scale Y to that window only
     window_slice = df_full.iloc[start_view:pattern_idx + 1]
@@ -379,18 +447,103 @@ def build_projection_chart(
     pad = 0.05 * span
     fig.update_yaxes(range=[window_low - pad, window_high + pad])
 
+    # Create custom tick labels that show actual dates (no duplication beyond history)
+    tick_vals = []
+    tick_text = []
+    step = max(1, (end_idx - start_view) // 10)
+    for i in range(start_view, min(end_idx + 1, len(df_full)), step):
+        tick_vals.append(i)
+        tick_text.append(df_full["Date"].iloc[i].strftime("%Y-%m-%d"))
+    
     fig.update_layout(
         template="plotly_dark",
         height=520,
         title="Projection from Selected Date (dominance-based)",
-        xaxis_title="Date",
+        xaxis_title="Trading Days",
         yaxis_title="Price (USD)",
         xaxis_rangeslider_visible=False,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(
+            tickmode='array',
+            tickvals=tick_vals,
+            ticktext=tick_text,
+            tickangle=45
+        )
     )
 
     return fig
 
+
+# ==== Pattern outcome highlights (D5, D10, ..., D30) ====
+def compute_stepwise_highlights(outcomes_df: pd.DataFrame, steps: list[int] | None = None) -> dict:
+    """Compute highlight values at D5, D10, ..., D30 based on dominant_probability.
+
+    Rules per checkpoint k:
+      - if dom > 0 → pick max(positive_range[1..k])
+      - if dom < 0 → pick min(negative_max[1..k]) (most negative)
+      - if dom == 0 → 0.0
+    Returns {k: {"dom": int, "value": float}} for k in steps intersect available days.
+    """
+    if steps is None:
+        steps = [5, 10, 15, 20, 25, 30]
+
+    if outcomes_df is None or outcomes_df.empty:
+        return {}
+
+    # outcomes_df index are strings of day numbers; ensure safe access
+    # Build a numeric-day-indexed view
+    try:
+        days_numeric = [int(str(i)) for i in outcomes_df.index]
+        df_num = outcomes_df.copy()
+        df_num["_day"] = days_numeric
+        df_num = df_num.sort_values("_day")
+    except Exception:
+        # fallback to original
+        df_num = outcomes_df.copy()
+        df_num["_day"] = range(1, len(df_num) + 1)
+
+    highlights: dict[int, dict] = {}
+    for k in steps:
+        subset = df_num[df_num["_day"] <= k]
+        if subset.empty:
+            continue
+        # dom at checkpoint k (use exact row if present, else last available before k)
+        dom_row = df_num[df_num["_day"] == k]
+        if dom_row.empty:
+            dom_row = subset.tail(1)
+        dom_val = float(dom_row.get("dominant_probability", pd.Series([0.0])).iloc[0])
+        dom = 1 if dom_val > 0 else (-1 if dom_val < 0 else 0)
+
+        value: float
+        if dom > 0:
+            series = pd.to_numeric(subset.get("positive_range", pd.Series([0.0])), errors="coerce").fillna(0.0)
+            value = float(series.max()) if not series.empty else 0.0
+        elif dom < 0:
+            series = pd.to_numeric(subset.get("negative_range", pd.Series([0.0])), errors="coerce").fillna(0.0)
+            # choose most negative (minimum)
+            value = float(series.min()) if not series.empty else 0.0
+        else:
+            value = 0.0
+
+        highlights[k] = {"dom": dom, "value": value}
+
+    return highlights
+
+
+def render_highlights(highlights: dict):
+    """Render highlights in a row of compact metrics above the table."""
+    if not highlights:
+        return
+    ks = sorted(highlights.keys())
+    cols = st.columns(len(ks))
+    for idx, k in enumerate(ks):
+        entry = highlights[k]
+        dom = entry.get("dom", 0)
+        val = entry.get("value", 0.0)
+        arrow = "↑" if dom > 0 else ("↓" if dom < 0 else "→")
+        label = f"D{k}"
+        value_txt = f"{arrow} {val:.2f}"
+        cols[idx].metric(label, value_txt)
 
 # ==== Pattern Analysis ====
 st.header("🧩 Pattern Analysis")
@@ -454,6 +607,9 @@ if st.button("📊 Analyze Patterns"):
         )
 
         with st.expander(f"{key} → {val['target_pattern']}  (occurrences: {val['occurrences_count']})", expanded=False):
+            # Highlights row
+            highlights = compute_stepwise_highlights(df_outcomes)
+            render_highlights(highlights)
             st.dataframe(df_outcomes.T)
 
             fig_proj = build_projection_chart(
@@ -461,7 +617,8 @@ if st.button("📊 Analyze Patterns"):
                 outcomes_df=df_outcomes,
                 pattern_date=pattern_date,
                 look_ahead=PROJ_DAYS,
-                real_candles=REAL_BARS
+                real_candles=REAL_BARS,
+                highlights=highlights
             )
             st.plotly_chart(fig_proj, use_container_width=True, key=f"proj_chart_{key}")
 
@@ -476,6 +633,7 @@ if st.button("📊 Analyze Patterns"):
             
             # Show pattern code
             st.write(f"**Pattern Code:** {cycle_data.get('target_pattern', 'N/A')}")
+            st.write(f"**Pattern Name:** {cycle_data.get('target_pattern_name', 'N/A')}")
             
             matching_dates = cycle_data.get("matching_prior_dates", [])
             
@@ -485,6 +643,9 @@ if st.button("📊 Analyze Patterns"):
                     df, matching_dates, pattern_date, look_ahead=PROJ_DAYS
                 )
                 
+                # Highlights row
+                highlights = compute_stepwise_highlights(df_outcomes)
+                render_highlights(highlights)
                 # Display the outcomes table
                 st.dataframe(df_outcomes.T)
                 
@@ -494,7 +655,8 @@ if st.button("📊 Analyze Patterns"):
                     outcomes_df=df_outcomes,
                     pattern_date=pattern_date,
                     look_ahead=PROJ_DAYS,
-                    real_candles=REAL_BARS
+                    real_candles=REAL_BARS,
+                    highlights=highlights
                 )
                 
                 # Update chart title for cycle patterns
@@ -508,5 +670,3 @@ if st.button("📊 Analyze Patterns"):
                 st.warning("⚠️ No matching prior dates found for this cycle pattern.")
         else:
             st.error("❌ Failed to retrieve cycle pattern data.")
-
-
