@@ -5,3 +5,4 @@ numpy
 streamlit
 plotly
 boto3
+requests
