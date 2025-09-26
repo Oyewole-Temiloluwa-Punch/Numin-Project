@@ -517,6 +517,9 @@ def compute_stepwise_highlights(outcomes_df: pd.DataFrame, steps: list[int] | No
         dom = 1 if dom_val > 0 else (-1 if dom_val < 0 else 0)
 
         value: float
+        pos_max_val: float = 0.0
+        neg_max_val: float = 0.0
+        
         if dom > 0:
             series = pd.to_numeric(subset.get("positive_range", pd.Series([0.0])), errors="coerce").fillna(0.0)
             value = float(series.max()) if not series.empty else 0.0
@@ -527,7 +530,13 @@ def compute_stepwise_highlights(outcomes_df: pd.DataFrame, steps: list[int] | No
         else:
             value = 0.0
 
-        highlights[k] = {"dom": dom, "value": value}
+        # Always compute pos_max and neg_max for display
+        pos_series = pd.to_numeric(subset.get("positive_max", pd.Series([0.0])), errors="coerce").fillna(0.0)
+        neg_series = pd.to_numeric(subset.get("negative_max", pd.Series([0.0])), errors="coerce").fillna(0.0)
+        pos_max_val = float(pos_series.max()) if not pos_series.empty else 0.0
+        neg_max_val = float(neg_series.min()) if not neg_series.empty else 0.0
+
+        highlights[k] = {"dom": dom, "value": value, "pos_max": pos_max_val, "neg_max": neg_max_val}
 
     return highlights
 
@@ -542,10 +551,17 @@ def render_highlights(highlights: dict):
         entry = highlights[k]
         dom = entry.get("dom", 0)
         val = entry.get("value", 0.0)
+        pos_max = entry.get("pos_max", 0.0)
+        neg_max = entry.get("neg_max", 0.0)
         arrow = "↑" if dom > 0 else ("↓" if dom < 0 else "→")
         label = f"D{k}"
         value_txt = f"{arrow} {val:.2f}"
         cols[idx].metric(label, value_txt)
+        
+        # Display pos_max and neg_max below each metric
+        with cols[idx]:
+            st.caption(f"Highest Pos Max: {pos_max:.2f}")
+            st.caption(f"Highest Neg Max: {neg_max:.2f}")
 
 # ==== Pattern Analysis ====
 st.header("🧩 Pattern Analysis")
