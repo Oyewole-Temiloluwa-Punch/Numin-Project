@@ -6,6 +6,8 @@ import json
 import numpy as np
 import boto3
 import requests
+from urllib.parse import quote
+from urllib.parse import quote
 
 # ==== AWS S3 Config (hardcoded as requested) ====
 AWS_ACCESS_KEY_ID = "AKIARVSAETUO7JZ6FK5D"
@@ -291,7 +293,7 @@ def build_projection_chart(
     look_ahead: int = 30,
     real_candles: int = 30,
     highlights: dict | None = None
-    ) -> go.Figure:
+) -> go.Figure:
     """
     Single chart per pattern using index-based plotting to eliminate gaps:
       - Uses index for x-axis to create continuous chart without gaps
@@ -358,8 +360,8 @@ def build_projection_chart(
             neg_max = 0.0
         else:
             dom = float(row.get("dominant_probability", 0.0))
-            pos_max = row.get("positive_max", 0.0)
-            neg_max = row.get("negative_max", 0.0)
+            pos_max = row.get("positive_range", 0.0)
+            neg_max = row.get("negative_range", 0.0)
             pos_max = float(pos_max) if pd.notna(pos_max) else 0.0
             neg_max = float(neg_max) if pd.notna(neg_max) else 0.0
 
@@ -417,7 +419,7 @@ def build_projection_chart(
                 name=f"D{k} highlight",
                 showlegend=False,
                 hovertemplate=f"<b>Highlight D{k}</b><br>Dom: {dom}<br>Value: %{{y:.2f}}<extra></extra>"
-            ))
+        ))
 
     # Initial x-window: last `real_candles` BEFORE selected date + projected trading dates after
     start_view = max(0, pattern_idx - real_candles + 1)
@@ -454,7 +456,7 @@ def build_projection_chart(
     for i in range(start_view, min(end_idx + 1, len(df_full)), step):
         tick_vals.append(i)
         tick_text.append(df_full["Date"].iloc[i].strftime("%Y-%m-%d"))
-    
+
     fig.update_layout(
         template="plotly_dark",
         height=520,
@@ -575,6 +577,23 @@ def fetch_cycle_pattern_data(date_str):
         st.error(f"❌ Error fetching cycle pattern data: {str(e)}")
         return None
 
+# Secondary patterns API
+SECONDARY_API_BASE = "http://52.53.169.196:8002/api/patterns"
+
+def fetch_secondary_patterns(date_str: str) -> dict | None:
+    try:
+        # API expects MM/DD/YYYY in query string
+        api_date = pd.to_datetime(date_str).strftime("%m/%d/%Y")
+        url = f"{SECONDARY_API_BASE}?end_date={quote(api_date)}&download=false"
+        resp = requests.get(url, timeout=30)
+        if resp.status_code != 200:
+            st.error(f"❌ Secondary API error {resp.status_code}: {resp.text}")
+            return None
+        return resp.json()
+    except Exception as e:
+        st.error(f"❌ Failed to fetch secondary patterns: {e}")
+        return None
+
 # Fixed config
 PROJ_DAYS = 30
 REAL_BARS = 30
@@ -582,23 +601,23 @@ REAL_BARS = 30
 if st.button("📊 Analyze Patterns"):
     # ==== Bar Patterns ====
     st.subheader("🧩 Bar Patterns")
-    
-    filename = f"{pattern_date}_patterns_cache.json"
 
-    if not cache_exists_in_s3(filename):
-        with st.spinner(f"Generating pattern cache for {pattern_date}..."):
-            filename = generate_cache(df, current_date=pattern_date, lookback=1800)
-            if filename is None:
-                st.error(f"❌ The selected date ({pattern_date}) was not a trading day.")
-                st.stop()
-            else:
-                st.success(f"✅ Cache generated in S3: {filename}")
-    else:
-        st.info(f"Using existing cache file from S3: {filename}")
+filename = f"{pattern_date}_patterns_cache.json"
 
-    patterns_data = load_cache_from_s3(filename)
+if not cache_exists_in_s3(filename):
+    with st.spinner(f"Generating pattern cache for {pattern_date}..."):
+        filename = generate_cache(df, current_date=pattern_date, lookback=1800)
+        if filename is None:
+            st.error(f"❌ The selected date ({pattern_date}) was not a trading day.")
+            st.stop()
+        else:
+            st.success(f"✅ Cache generated in S3: {filename}")
+else:
+    st.info(f"Using existing cache file from S3: {filename}")
 
-    for key, val in patterns_data.items():
+patterns_data = load_cache_from_s3(filename)
+
+for key, val in patterns_data.items():
         if val.get("occurrences_count", 0) <= 0:
             continue
 
@@ -622,51 +641,105 @@ if st.button("📊 Analyze Patterns"):
             )
             st.plotly_chart(fig_proj, use_container_width=True, key=f"proj_chart_{key}")
 
-    # ==== Cycle Patterns ====
-    st.subheader("🔄 Cycle Patterns")
+# ==== Cycle Patterns ====
+st.subheader("🔄 Cycle Patterns")
     
-    with st.spinner(f"Fetching cycle pattern data for {pattern_date}..."):
-        cycle_data = fetch_cycle_pattern_data(pattern_date)
+with st.spinner(f"Fetching cycle pattern data for {pattern_date}..."):
+    cycle_data = fetch_cycle_pattern_data(pattern_date)
+    
+    if cycle_data:
+        st.success(f"✅ Cycle pattern data retrieved successfully!")
         
-        if cycle_data:
-            st.success(f"✅ Cycle pattern data retrieved successfully!")
+        # Show pattern code
+        st.write(f"**Pattern Code:** {cycle_data.get('target_pattern', 'N/A')}")
+        st.write(f"**Pattern Name:** {cycle_data.get('target_pattern_name', 'N/A')}")
+        
+        matching_dates = cycle_data.get("matching_prior_dates", [])
+        
+        if matching_dates:
+            # Analyze outcomes for cycle patterns
+            df_outcomes = analyze_current_day_pattern_outcomes(
+                df, matching_dates, pattern_date, look_ahead=PROJ_DAYS
+            )
             
-            # Show pattern code
-            st.write(f"**Pattern Code:** {cycle_data.get('target_pattern', 'N/A')}")
-            st.write(f"**Pattern Name:** {cycle_data.get('target_pattern_name', 'N/A')}")
+            # Highlights row
+            highlights = compute_stepwise_highlights(df_outcomes)
+            render_highlights(highlights)
+            # Display the outcomes table
+            st.dataframe(df_outcomes.T)
             
-            matching_dates = cycle_data.get("matching_prior_dates", [])
+            # Create projection chart for cycle patterns
+            fig_cycle_proj = build_projection_chart(
+                df_full=df,
+                outcomes_df=df_outcomes,
+                pattern_date=pattern_date,
+                look_ahead=PROJ_DAYS,
+                real_candles=REAL_BARS,
+                highlights=highlights
+            )
             
-            if matching_dates:
-                # Analyze outcomes for cycle patterns
-                df_outcomes = analyze_current_day_pattern_outcomes(
-                    df, matching_dates, pattern_date, look_ahead=PROJ_DAYS
-                )
-                
-                # Highlights row
-                highlights = compute_stepwise_highlights(df_outcomes)
-                render_highlights(highlights)
-                # Display the outcomes table
-                st.dataframe(df_outcomes.T)
-                
-                # Create projection chart for cycle patterns
-                fig_cycle_proj = build_projection_chart(
-                    df_full=df,
-                    outcomes_df=df_outcomes,
-                    pattern_date=pattern_date,
-                    look_ahead=PROJ_DAYS,
-                    real_candles=REAL_BARS,
-                    highlights=highlights
-                )
-                
-                # Update chart title for cycle patterns
-                fig_cycle_proj.update_layout(
-                    title=f"Cycle Pattern Projection: {cycle_data.get('target_pattern_name', 'Unknown Pattern')}"
-                )
-                
-                st.plotly_chart(fig_cycle_proj, use_container_width=True, key="cycle_pattern_chart")
-                
-            else:
-                st.warning("⚠️ No matching prior dates found for this cycle pattern.")
+            # Update chart title for cycle patterns
+            fig_cycle_proj.update_layout(
+                title=f"Cycle Pattern Projection: {cycle_data.get('target_pattern_name', 'Unknown Pattern')}"
+            )
+            
+            st.plotly_chart(fig_cycle_proj, use_container_width=True, key="cycle_pattern_chart")
+            
         else:
-            st.error("❌ Failed to retrieve cycle pattern data.")
+            st.warning("⚠️ No matching prior dates found for this cycle pattern.")
+    else:
+        st.error("❌ Failed to retrieve cycle pattern data.")
+
+# ==== Secondary Patterns Section (auto-run) ====
+st.subheader("🧪 Secondary Patterns")
+with st.spinner(f"Fetching secondary patterns for {pattern_date}..."):
+    sec_data = fetch_secondary_patterns(pattern_date)
+    
+    if not sec_data or "windows" not in sec_data:
+        st.warning("No secondary patterns available for this date.")
+    else:
+        windows = sec_data.get("windows", {})
+        # iterate through windows 3..7
+        for win in [3, 4, 5, 6, 7]:
+            wkey = str(win)
+            if wkey not in windows:
+                continue
+
+            win_obj = windows[wkey]
+            passed = win_obj.get("passed_day", {})
+            counts = passed.get("prior_match_counts", [])
+            if not counts:
+                continue
+
+            # pick the top pattern by count
+            top = max(counts, key=lambda x: x.get("count", 0))
+            pattern_id = top.get("pattern")
+            match_dates = top.get("dates", [])
+
+            st.markdown(f"**Window {win}** — Pattern: `{pattern_id}` · Matches: {len(match_dates)}")
+
+            if not match_dates:
+                st.info("No matches to analyze.")
+                continue
+
+            # Analyze using our existing outcomes computation
+            df_outcomes = analyze_current_day_pattern_outcomes(
+                df, match_dates, pattern_date, look_ahead=PROJ_DAYS
+            )
+
+            # Highlights row + table
+            highlights = compute_stepwise_highlights(df_outcomes)
+            render_highlights(highlights)
+            st.dataframe(df_outcomes.T)
+
+            # Chart
+            fig_sec = build_projection_chart(
+                df_full=df,
+                outcomes_df=df_outcomes,
+                pattern_date=pattern_date,
+                look_ahead=PROJ_DAYS,
+                real_candles=REAL_BARS,
+                highlights=highlights
+            )
+            fig_sec.update_layout(title=f"Secondary Pattern Projection — Window {win} · Pattern {pattern_id}")
+            st.plotly_chart(fig_sec, use_container_width=True, key=f"secondary_chart_{win}")
