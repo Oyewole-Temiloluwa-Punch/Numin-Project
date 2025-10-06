@@ -43,7 +43,7 @@ Stock Market Dashboard/
 1. Ensure your SPY data CSV file is placed in the `data/` directory
 2. Run the Streamlit application:
    ```bash
-   streamlit run app.py
+   streamlit run app2.py
    ```
 3. Open your browser to the provided local URL (typically `http://localhost:8501`)
 
